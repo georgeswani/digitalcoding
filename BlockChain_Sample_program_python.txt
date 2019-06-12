@@ -1,0 +1,365 @@
+Here’s an example in Python using the extremely popular sha256 (secure hash algorithm) hashing function. This was demonstrated and explained in the official Bitcoin whitepaper.
+
+>>> from hashlib import sha256
+>>> data = "Some variable length data"
+>>> sha256(data).hexdigest()
+'b919fbbcae38e2bdaebb6c04ed4098e5c70563d2dc51e085f784c058ff208516'
+>>> sha256(data).hexdigest() # no matter how many times you run it, the
+ result is going to be the same 256 character string
+'b919fbbcae38e2bdaebb6c04ed4098e5c70563d2dc51e085f784c058ff208516'
+
+The characteristics of an ideal hash function are:
+
+It should be computationally easy to compute (Constant time).
+Even a single bit change in the input data should make the output hash change completely such that the output is impossible to guess by humans (and in better cases, powerful machines).
+Our Blockobject will hold the hash of itself. (Like a digital fingerprint or UUID):
+
+from hashlib import sha256
+import json
+def compute_hash(block):
+     """
+    A function that creates the hash of the block.
+    """
+    block_string = json.dumps(self.__dict__, sort_keys=True)
+    return sha256(block_string.encode()).hexdigest()
+
+
+In our example, we’re keeping things simple, but most cryptocurrencies have the individual Block transactions hashed. This forms a “hash tree” (or Merkle tree) with the root being the block hash itself. For now, this will be omitted.
+
+Chain the Blocks Together
+Now that the Block objects have been created, recall that the blockchain is a chain of Blocks, so these blocks must be linked together within a data structure.
+
+The Python list (array) isn’t secure enough for a Blockchain implementation because this allows for the possibility of the order of blocks in the list or array to change order without a penalty.
+
+Any change in the past blocks is supposed to invalidate the entire chain of blocks.
+
+One method is chaining blocks together by the hash of the blocks.
+
+ 
+
+In this implementation, every block is linked to the previous block by the previous_hash field
+The very first block hasn’t been accounted for! This is called the genesis block and is generated manually or by some unique logic, quite often in many blockchain implementations.
+We’re adding the previous_hash field to the Block class and implement the initial structure of our Blockchain class (see a.).
+
+a. The initial structure of our Blockchain class
+
+from hashlib import sha256
+import json
+import time
+class Block:
+    def__init__(self, index, transactions, timestamp, previous_hash):
+        self.index = index
+        self.transactions = transactions
+        self.timestamp = timestamp
+        self.previous_hash = previous_hash
+    def compute_hash(self):
+        block_string = json.dumps(self.__dict__, sort_keys=True)
+        return sha256(block_string.encode()).hexdigest()
+
+
+Our Blockchain class…
+
+class Blockchain:
+    def __init__(self):
+        self.unconfirmed_transactions = [] # data yet to get into blockchain
+        self.chain = []
+        self.create_genesis_block()
+    def create_genesis_block(self):
+        """
+        A function to generate genesis block and appends it to
+        the chain. The block has index 0, previous_hash as 0, and
+        a valid hash.
+        """
+        genesis_block = Block(0, [], time.time(), "0")
+        genesis_block.hash = genesis_block.compute_hash()
+        self.chain.append(genesis_block)
+    @property
+    def last_block(self):
+        return self.chain[-1]
+
+Implementing a Proof of Work (PoW) Algorithm
+One issue to look out for: If the previous Blocks are illegally changed, we can re-compute the hashes of all the following blocks quite easily and create a different valid blockchain (but there is only one valid blockchain). To prevent this, we must make the task of calculating the hash difficult and random.
+Selective endorsement vs. Proof of Work is all an integral to the business logic and governance for a blockchain implementation. Read more about Proof of Work and Proof of Stake here.
+To implement a PoW, rather than accepting any hash for the block, we add a constraint to it.
+
+In our case, we will add a constraint that makes it so that our hash should start with two leading zeroes (“00therestofthehash”).
+
+Introducing the “NONCE”.
+Also, we know that unless we change the contents of the block, the hash is not going to change.
+
+So we’re going to introduce a new field in our block called nonce. A nonce is a number that we will keep changing until we get back a hash that satisfies our constraint.
+
+Let’s add this to a new field.
+
+The number of leading zeroes (the value 2, in our case) determines the “difficulty” of our Proof of Work algorithm.
+
+As seen in the code below, this Proof of Work is difficult to compute but easy to verify once the nonce is figured out. (to verify, one just has to run the hash function again):
+
+
+class Blockchain:
+    # difficulty of PoW algorithm
+    difficulty = 2
+    """
+    Previous code contd..
+    """
+    def proof_of_work(self, block):
+        """
+        Function that tries different values of nonce to get a hash
+        that satisfies our difficulty criteria.
+        """
+        block.nonce = 0
+        computed_hash = block.compute_hash()
+        while not computed_hash.startswith('0' * Blockchain.difficulty):
+            block.nonce += 1
+            computed_hash = block.compute_hash()
+        return computed_hash
+
+In this case above, there is no definite logic to figure out the nonce quickly; it’s simply brute force.
+
+Add blocks to the chain
+To add a block to the chain, we’ll first have to verify if the Proof of Work provided is correct and if the previous_hash field of the block to be added then points to the hash of the latest block in our chain.
+
+Let’s see the code for adding blocks into the chain:
+
+class Blockchain:
+    """
+    Previous code contd..
+    """
+    def add_block(self, block, proof):
+        """
+        A function that adds the block to the chain after verification.
+        """
+        previous_hash = self.last_block.hash
+        if previous_hash != block.previous_hash:
+            return False
+        if not self.is_valid_proof(block, proof):
+            return False
+        block.hash = proof
+        self.chain.append(block)
+        return True
+    def is_valid_proof(self, block, block_hash):
+        """
+        Check if block_hash is valid hash of block and satisfies
+        the difficulty criteria.
+        """
+        return (block_hash.startswith('0' * Blockchain.difficulty) and
+                block_hash == block.compute_hash())
+
+Mining
+The transactions are initially stored in a pool of unconfirmed transactions.
+The process of putting the unconfirmed transactions in a block and computing Proof of Work is known as the mining of blocks. Mining can be known as the work to confirm transactions.
+Once the nonce satisfying our constraints is figured out, we can say that a block has been mined, and the block is put into the blockchain.
+Usually, miners are rewarded for using their computing power to compute a Proof of Work (because it costs money to run CPUs at high levels all day).
+
+
+class Blockchain:
+    """
+    Previous code contd...
+    """
+    def add_new_transaction(self, transaction):
+            self.unconfirmed_transactions.append(transaction)
+    def mine(self):
+        """
+        This function serves as an interface to add the pending
+        transactions to the blockchain by adding them to the block
+        and figuring out Proof of Work.
+        """
+        if not self.unconfirmed_transactions:
+            return False
+        last_block = self.last_block
+        new_block = Block(index=last_block.index + 1,
+                          transactions=self.unconfirmed_transactions,
+                          timestamp=time.time(),
+                          previous_hash=last_block.hash)
+        proof = self.proof_of_work(new_block)
+        self.add_block(new_block, proof)
+        self.unconfirmed_transactions = []
+        return new_block.index
+
+
+Build the Interfaces
+Now we will create interfaces for our node (a computer connected to the Blockchain network that downloads a temporary copy of the blockchain) to interact with other peers as well as with the application we’re going to build.
+We’ll be using Flask to create a REST-API to interact with our node.
+This is the code!
+
+from flask import Flask, request
+import requests
+app =  Flask(__name__)
+# the node's copy of blockchain
+blockchain = Blockchain()
+
+
+We need a RESTful endpoint for our application to submit a new transaction. This will be used by our application to add new data (posts) to the blockchain:
+
+@app.route('/new_transaction', methods=['POST'])
+def new_transaction():
+    tx_data = request.get_json()
+    required_fields = ["author", "content"]
+    for field in required_fields:
+        if not tx_data.get(field):
+            return "Invlaid transaction data", 404
+    tx_data["timestamp"] = time.time()
+    blockchain.add_new_transaction(tx_data)
+    return "Success", 201
+
+This is an endpoint to return the node’s copy of the chain. Our application will be using this endpoint to query all of the posts to display:
+
+@app.route('/chain', methods=['GET'])
+def get_chain():
+    chain_data = []
+    for block in blockchain.chain:
+        chain_data.append(block.__dict__)
+    return json.dumps({"length": len(chain_data),
+                       "chain": chain_data})
+
+
+
+Here’s an endpoint to request the node to mine the unconfirmed transactions (if any). We’ll be using it to initiate a command to mine from our application itself:
+
+
+@app.route('/mine', methods=['GET'])
+def mine_unconfirmed_transactions():
+    result = blockchain.mine()
+    if not result:
+        return "No transactions to mine"
+    return "Block #{} is mined.".format(result)
+# endpoint to query unconfirmed transactions
+@app.route('/pending_tx')
+def get_pending_tx():
+    return json.dumps(blockchain.unconfirmed_transactions)
+app.run(debug=True, port=8000)
+
+Now, if you’d like, you can play around with our blockchain by creating some transactions and then mining them using a tool like cURL or Postman.
+
+Establish consensus and decentralization
+Completed up until this is meant to run on a single computer (node). We should create an endpoint to let a node know about other legal peers in the Blockchain network. Blockchain isn’t a single player game, after all.
+
+# the address to other participating members of the network
+peers = set()
+# endpoint to add new peers to the network.
+@app.route('/add_nodes', methods=['POST'])
+def register_new_peers():
+    nodes = request.get_json()
+    if not nodes:
+        return "Invalid data", 400
+    for node in nodes:
+        peers.add(node)
+    return "Success", 201
+
+The problem with having multiple nodes is that the copy of chains can differ but there’s supposed to be only one correct chain. Differences that are unresolved hurts the network’s integrity. This is where consensus comes in.
+
+An example of a consensus algorithm that could be built is one that agrees upon the longest valid chain when the chains of different participants in the network appear to diverge (differ).
+
+The reasoning behind this approach is that the longest chain is a good indicator of the most amount of work done:
+
+
+def consensus():
+    """
+    Our simple consensus algorithm. If a longer valid chain is found, our chain is replaced with it.
+    """
+    global blockchain
+    longest_chain = None
+    current_len = len(blockchain)
+    for node in peers:
+        response = requests.get('http://{}/chain'.format(node))
+        length = response.json()['length']
+        chain = response.json()['chain']
+        if length > current_len and blockchain.check_chain_validity(chain):
+            current_len = length
+            longest_chain = chain
+    if longest_chain:
+        blockchain = longest_chain
+        return True
+    return False
+
+Finally, there has to be a way for nodes to announce to the network that it mined a block successfully so everyone can update their local blockchains and move on to mine other transactions. The other nodes can do this by simply verifying the proof of work and adding it to their respective chains:
+
+
+# endpoint to add a block mined by someone else to the node's chain.
+@app.route('/add_block', methods=['POST'])
+def validate_and_add_block():
+    block_data = request.get_json()
+    block = Block(block_data["index"], block_data["transactions"],
+                  block_data["timestamp", block_data["previous_hash"]])
+    proof = block_data['hash']
+    added = blockchain.add_block(block, proof)
+    if not added:
+        return "The block was discarded by the node", 400
+    return "Block added to the chain", 201
+    
+    def announce_new_block(block):
+    for peer in peers:
+        url = "http://{}/add_block".format(peer)
+        requests.post(url, data=json.dumps(block.__dict__, sort_keys=True))
+
+
+The announce_new_block method should be just after every block is mined by the node, so that peers can add easily it to their chains.
+
+Build the application
+Here is the code up to this point on GitHub.
+
+Jinja2 is the templating engine for webpage rendering
+CSS added to for looks
+Our app needs to connect to one or more nodes in our blockchain network to fetch and submit data.
+
+import datetime
+import json
+import requests
+from flask import render_template, redirect, request
+from app import app
+.
+CONNECTED_NODE_ADDRESS = "http://127.0.0.1:8000"
+posts = []
+
+
+The fetch_posts method gets the data from node’s /chain endpoint
+The data is parsed and stored locally.
+
+def fetch_posts():
+    get_chain_address = "{}/chain".format(CONNECTED_NODE_ADDRESS)
+    response = requests.get(get_chain_address)
+    if response.status_code == 200:
+        content = []
+        chain = json.loads(response.content)
+        for block in chain["chain"]:
+            for tx in block["transactions"]:
+                tx["index"] = block["index"]
+                tx["hash"] = block["previous_hash"]
+                content.append(tx)
+        global posts
+        posts = sorted(content, key=lambda k: k['timestamp'],
+                       reverse=True)
+
+The application basic form to take user input
+It makes a POST request to a connected node to add the transaction into the unconfirmed transactions pool.
+The transaction is then mined by the network, and then finally will be fetched once we refresh our website:
+
+@app.route('/submit', methods=['POST'])
+def submit_textarea():
+    """
+    Endpoint to create a new transaction via our application.
+    """
+    post_content = request.form["content"]
+    author = request.form["author"]
+    post_object = {
+        'author': author,
+        'content': post_content,
+    }
+    # Submit a transaction
+    new_tx_address = "{}/new_transaction".format(CONNECTED_NODE_ADDRESS)
+    requests.post(new_tx_address,
+                  json=post_object,
+                  headers={'Content-type': 'application/json'})
+    return redirect('/')
+
+Run It
+======
+
+To run,
+
+Start your blockchain node server:
+python node_server.py
+
+Then run it!
+python run_app.py
+
